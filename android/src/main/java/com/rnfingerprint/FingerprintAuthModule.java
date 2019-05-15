@@ -4,6 +4,7 @@ import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.KeyguardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.hardware.fingerprint.FingerprintManager;
 import android.os.Build;
 
@@ -13,17 +14,37 @@ import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.ReadableMap;
+import com.facebook.react.bridge.Promise;
+import com.facebook.react.bridge.ActivityEventListener;
+import com.facebook.react.bridge.BaseActivityEventListener;
 
 import javax.crypto.Cipher;
 
 public class FingerprintAuthModule extends ReactContextBaseJavaModule implements LifecycleEventListener {
 
     private static final String FRAGMENT_TAG = "fingerprint_dialog";
+    private static final int AUTH_REQUEST = 56285;
 
     private KeyguardManager keyguardManager;
     private boolean isAppActive;
 
+
     public static boolean inProgress = false;
+
+    private final ActivityEventListener mActivityEventListener = new BaseActivityEventListener() {
+        @Override
+        public void onActivityResult(Activity activity, int requestCode, int resultCode, Intent data) {
+            if (requestCode != AUTH_REQUEST) return;
+
+            if (resultCode == Activity.RESULT_CANCELED) {
+                inProgress = false;
+                return;
+            } else if (resultCode == Activity.RESULT_OK) {
+                inProgress = false;
+                return;
+            }
+        }
+    };
 
     public FingerprintAuthModule(final ReactApplicationContext reactContext) {
         super(reactContext);
@@ -75,7 +96,16 @@ public class FingerprintAuthModule extends ReactContextBaseJavaModule implements
         inProgress = true;
 
         int availableResult = isFingerprintAuthAvailable();
-        if (availableResult != FingerprintAuthConstants.IS_SUPPORTED) {
+        if (availableResult == FingerprintAuthConstants.NOT_ENROLLED) {
+            try {
+                final Intent authIntent = keyguardManager.createConfirmDeviceCredentialIntent(reason, "description");
+                getCurrentActivity().startActivityForResult(authIntent, AUTH_REQUEST);
+                reactSuccessCallback.invoke("Password successful");
+                return;
+            } catch (Exception e) {
+                reactErrorCallback.invoke("No Password", FingerprintAuthConstants.NOT_AVAILABLE);
+            }
+        }else if (availableResult != FingerprintAuthConstants.IS_SUPPORTED) {
             inProgress = false;
             reactErrorCallback.invoke("Not supported", availableResult);
             return;
